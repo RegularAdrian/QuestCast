@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">QuestCast</string>
+    <string name="capture_notification_channel">QuestCast capture</string>
+</resources>
+
