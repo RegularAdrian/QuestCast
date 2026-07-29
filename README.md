@@ -128,7 +128,14 @@ Network ping does not measure capture-to-display latency. For a useful test, sho
 - Tested primarily with Meta Quest 3 and Apple TV on the same local network
 - Store-distributed builds require the publisher's own signing and platform review
 
-Contributions and reproducible latency measurements are welcome. This app has primarily been built with AI.
+Contributions and reproducible latency measurements are welcome.
+
+## Disclaimer
+This software is completely without warranty, and the author does not assume any responsibility for damage, the security risks or losses caused by the use of this software.
+
+Anyone using or installing this software does so at their own risk.
+
+This app has primarily been built with AI (OpenAI Codex).
 
 ## Licence
 
