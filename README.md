@@ -108,7 +108,7 @@ The resulting APK is written under `QuestSender/app/build/outputs/apk/debug/`.
 - Incomplete-frame expiry: 80 ms
 - Receiver playback/jitter buffer: none
 - Optional audio: PCM 16-bit, 48 kHz stereo in 10 ms chunks
-- Audio startup buffer: approximately 30 ms, capped at approximately 100 ms
+- Audio startup/jitter buffer: approximately 50 ms, with continuous silence-safe playback and latency trimming
 
 H.265 may reduce bandwidth, but H.264 is the current default because its hardware path is widely supported and predictable. A future H.265 mode should be measured end-to-end rather than assumed to be faster.
 

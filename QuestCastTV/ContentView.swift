@@ -137,6 +137,7 @@ struct ContentView: View {
                     diagnosticRow("Audio", receiver.isAudioActive ? "PCM 48 kHz stereo" : "Off / unavailable")
                     if receiver.isAudioActive {
                         diagnosticRow("Audio buffer", "\(receiver.audioBufferMilliseconds) ms")
+                        diagnosticRow("Audio underruns", receiver.audioUnderruns.formatted())
                         diagnosticRow("Audio chunks lost", receiver.audioChunksDropped.formatted())
                     }
                     diagnosticRow("Frames received", receiver.framesDecoded.formatted())

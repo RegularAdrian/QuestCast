@@ -13,10 +13,17 @@ final class AudioPacketAssembler {
         var fragments: [Int: Data]
     }
 
+    private struct CompletedChunk {
+        let completedAt: ContinuousClock.Instant
+        let chunk: AudioChunk
+    }
+
     private let clock = ContinuousClock()
     private let onChunk: (AudioChunk) -> Void
     private let onDrop: (Int) -> Void
     private var chunks: [UInt32: PartialChunk] = [:]
+    private var completed: [UInt32: CompletedChunk] = [:]
+    private var expectedChunkID: UInt32?
 
     init(onChunk: @escaping (AudioChunk) -> Void, onDrop: @escaping (Int) -> Void) {
         self.onChunk = onChunk
@@ -26,6 +33,7 @@ final class AudioPacketAssembler {
     func ingest(_ datagram: Data) {
         guard let packet = AudioPacket(datagram) else { return }
         expireOldChunks()
+        drainCompletedChunks()
 
         var chunk = chunks[packet.chunkID] ?? PartialChunk(
             createdAt: clock.now,
@@ -35,7 +43,6 @@ final class AudioPacketAssembler {
         )
         guard chunk.fragmentCount == packet.fragmentCount else {
             chunks.removeValue(forKey: packet.chunkID)
-            onDrop(1)
             return
         }
         chunk.fragments[packet.fragmentIndex] = packet.payload
@@ -47,18 +54,32 @@ final class AudioPacketAssembler {
                 pcm.append(fragment)
             }
             chunks.removeValue(forKey: packet.chunkID)
-            onChunk(AudioChunk(pcm: pcm, presentationTimeUs: chunk.presentationTimeUs))
+            if let expected = expectedChunkID,
+               forwardDistance(from: expected, to: packet.chunkID) >= 0x8000_0000 {
+                return
+            }
+            completed[packet.chunkID] = CompletedChunk(
+                completedAt: clock.now,
+                chunk: AudioChunk(pcm: pcm, presentationTimeUs: chunk.presentationTimeUs)
+            )
+            if expectedChunkID == nil { expectedChunkID = packet.chunkID }
+            drainCompletedChunks()
         } else {
             chunks[packet.chunkID] = chunk
             trimChunkWindow()
         }
     }
 
+    func reset() {
+        chunks.removeAll(keepingCapacity: true)
+        completed.removeAll(keepingCapacity: true)
+        expectedChunkID = nil
+    }
+
     private func expireOldChunks() {
         let deadline = clock.now - .milliseconds(80)
         let expired = chunks.filter { $0.value.createdAt < deadline }.map(\.key)
         expired.forEach { chunks.removeValue(forKey: $0) }
-        if !expired.isEmpty { onDrop(expired.count) }
     }
 
     private func trimChunkWindow() {
@@ -66,7 +87,31 @@ final class AudioPacketAssembler {
         let excess = chunks.count - 12
         let oldest = chunks.sorted { $0.value.createdAt < $1.value.createdAt }.prefix(excess)
         oldest.forEach { chunks.removeValue(forKey: $0.key) }
-        onDrop(excess)
+    }
+
+    private func drainCompletedChunks() {
+        while let expected = expectedChunkID,
+              let complete = completed.removeValue(forKey: expected) {
+            onChunk(complete.chunk)
+            expectedChunkID = expected &+ 1
+        }
+
+        guard let expected = expectedChunkID,
+              let oldest = completed.min(by: { $0.value.completedAt < $1.value.completedAt }),
+              oldest.value.completedAt < clock.now - .milliseconds(30) else { return }
+
+        let nextID = completed.keys.min { forwardDistance(from: expected, to: $0) < forwardDistance(from: expected, to: $1) }
+        guard let nextID else { return }
+        let missing = forwardDistance(from: expected, to: nextID)
+        if missing > 0 && missing <= 100 {
+            onDrop(Int(missing))
+        }
+        expectedChunkID = nextID
+        drainCompletedChunks()
+    }
+
+    private func forwardDistance(from start: UInt32, to end: UInt32) -> UInt32 {
+        end &- start
     }
 }
 

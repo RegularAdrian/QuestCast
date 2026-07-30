@@ -8,15 +8,21 @@ final class ReceiverController: ObservableObject {
     @Published private(set) var framesDropped = 0
     @Published private(set) var isAudioActive = false
     @Published private(set) var audioChunksDropped = 0
+    @Published private(set) var audioUnderruns = 0
     @Published private(set) var audioBufferMilliseconds = 0
 
     let frameStore = FrameStore()
 
     private let networkQueue = DispatchQueue(label: "com.apctv.questcast.receiver.network", qos: .userInteractive)
     private let decoder: VideoDecoder
-    private lazy var audioPlayer = QuestAudioPlayer { [weak self] milliseconds in
-        self?.audioBufferMilliseconds = milliseconds
-    }
+    private lazy var audioPlayer = QuestAudioPlayer(
+        onBufferChanged: { [weak self] milliseconds in
+            self?.audioBufferMilliseconds = milliseconds
+        },
+        onUnderrun: { [weak self] in
+            self?.audioUnderruns += 1
+        }
+    )
     private var listener: NWListener?
     private var connections: [NWEndpoint: NWConnection] = [:]
     private var streamWatchdog: DispatchSourceTimer?
@@ -29,7 +35,10 @@ final class ReceiverController: ObservableObject {
     )
     private lazy var audioAssembler = AudioPacketAssembler(
         onChunk: { [weak self] chunk in self?.handleAudio(chunk) },
-        onDrop: { [weak self] count in self?.publishAudioDrops(count) }
+        onDrop: { [weak self] count in
+            self?.audioPlayer.insertSilence(chunkCount: count)
+            self?.publishAudioDrops(count)
+        }
     )
 
     init() {
@@ -101,6 +110,8 @@ final class ReceiverController: ObservableObject {
 
     private func handle(_ unit: AccessUnit) {
         if unit.isConfiguration {
+            audioAssembler.reset()
+            audioPlayer.stop()
             decoder.configure(with: unit.data)
             publishStatus("Quest connected — waiting for video")
             return
@@ -133,6 +144,7 @@ final class ReceiverController: ObservableObject {
             guard elapsedNanoseconds > 2_500_000_000 else { return }
 
             self.streamingOnNetworkQueue = false
+            self.audioAssembler.reset()
             self.audioPlayer.stop()
             DispatchQueue.main.async { [weak self] in
                 self?.isStreaming = false

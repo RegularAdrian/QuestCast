@@ -2,107 +2,216 @@ import AVFoundation
 import Foundation
 
 final class QuestAudioPlayer {
-    private let sampleRate = 48_000.0
-    private let channels: AVAudioChannelCount = 2
-    private let bytesPerFrame = 4
-    private let startBufferFrames: AVAudioFrameCount = 1_440
-    private let maximumBufferFrames: AVAudioFrameCount = 4_800
+    private static let sampleRate = 48_000.0
+    private static let channels: AVAudioChannelCount = 2
+    private static let bytesPerFrame = 4
 
     private let queue = DispatchQueue(label: "com.apctv.questcast.audio", qos: .userInteractive)
     private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    private let format = AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: sampleRate,
+        channels: channels,
+        interleaved: true
+    )!
+    private let ring = PCMByteRingBuffer(
+        capacityFrames: 9_600,
+        startFrames: 2_400,
+        highWaterFrames: 4_800,
+        bytesPerFrame: bytesPerFrame
+    )
     private let onBufferChanged: (Int) -> Void
-    private var format: AVAudioFormat?
-    private var pending: [AVAudioPCMBuffer] = []
-    private var queuedFrames: AVAudioFrameCount = 0
-    private var isPlaying = false
+    private let onUnderrun: () -> Void
+    private var isConfigured = false
+    private var lastBufferPublication = DispatchTime.now() - .seconds(1)
 
-    init(onBufferChanged: @escaping (Int) -> Void) {
+    private lazy var sourceNode = AVAudioSourceNode(format: format) { [weak self] isSilence, _, frameCount, audioBufferList in
+        guard let self else {
+            isSilence.pointee = true
+            return noErr
+        }
+        let result = self.ring.render(into: audioBufferList, frameCount: Int(frameCount))
+        isSilence.pointee = ObjCBool(result.isSilent)
+        if result.didUnderrun {
+            DispatchQueue.main.async { [onUnderrun] in onUnderrun() }
+        }
+        return noErr
+    }
+
+    init(onBufferChanged: @escaping (Int) -> Void, onUnderrun: @escaping () -> Void) {
         self.onBufferChanged = onBufferChanged
+        self.onUnderrun = onUnderrun
     }
 
     func enqueue(_ chunk: AudioChunk) {
-        queue.async { [weak self] in self?.enqueueOnQueue(chunk) }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.ensureEngineStarted()
+            let bufferedFrames = self.ring.write(chunk.pcm)
+            self.publishBufferDepth(bufferedFrames: bufferedFrames)
+        }
+    }
+
+    func insertSilence(chunkCount: Int) {
+        guard chunkCount > 0 else { return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.ensureEngineStarted()
+            let bufferedFrames = self.ring.writeSilence(frames: min(chunkCount, 10) * 480)
+            self.publishBufferDepth(bufferedFrames: bufferedFrames)
+        }
     }
 
     func stop() {
-        queue.async { [weak self] in self?.resetOnQueue() }
-    }
-
-    private func enqueueOnQueue(_ chunk: AudioChunk) {
-        guard chunk.pcm.count >= bytesPerFrame else { return }
-        if queuedFrames >= maximumBufferFrames {
-            resetOnQueue()
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.ring.reset()
+            self.engine.pause()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            DispatchQueue.main.async { [onBufferChanged = self.onBufferChanged] in onBufferChanged(0) }
         }
-        guard let buffer = makeBuffer(from: chunk.pcm) else { return }
-        pending.append(buffer)
-        queuedFrames += buffer.frameLength
-        publishBufferDepth()
-
-        guard queuedFrames >= startBufferFrames else { return }
-        ensureEngineStarted()
-        pending.forEach(schedule)
-        pending.removeAll(keepingCapacity: true)
-        if !isPlaying {
-            player.play()
-            isPlaying = true
-        }
-    }
-
-    private func makeBuffer(from pcm: Data) -> AVAudioPCMBuffer? {
-        if format == nil {
-            format = AVAudioFormat(
-                commonFormat: .pcmFormatInt16,
-                sampleRate: sampleRate,
-                channels: channels,
-                interleaved: true
-            )
-        }
-        guard let format else { return nil }
-        let frameCount = AVAudioFrameCount(pcm.count / bytesPerFrame)
-        guard frameCount > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
-              let destination = buffer.mutableAudioBufferList.pointee.mBuffers.mData else { return nil }
-        buffer.frameLength = frameCount
-        pcm.copyBytes(to: destination.assumingMemoryBound(to: UInt8.self), count: Int(frameCount) * bytesPerFrame)
-        return buffer
     }
 
     private func ensureEngineStarted() {
-        guard let format else { return }
-        if engine.attachedNodes.contains(player) == false {
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
+        if !isConfigured {
+            engine.attach(sourceNode)
+            engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
+            isConfigured = true
         }
-        if !engine.isRunning {
-            let session = AVAudioSession.sharedInstance()
-            try? session.setCategory(.playback, mode: .moviePlayback)
-            try? session.setActive(true)
-            try? engine.start()
-        }
+        guard !engine.isRunning else { return }
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .moviePlayback)
+        try? session.setActive(true)
+        engine.prepare()
+        try? engine.start()
     }
 
-    private func schedule(_ buffer: AVAudioPCMBuffer) {
-        let frameLength = buffer.frameLength
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            self?.queue.async {
-                guard let self else { return }
-                self.queuedFrames = self.queuedFrames > frameLength ? self.queuedFrames - frameLength : 0
-                self.publishBufferDepth()
+    private func publishBufferDepth(bufferedFrames: Int) {
+        let now = DispatchTime.now()
+        guard now.uptimeNanoseconds - lastBufferPublication.uptimeNanoseconds >= 250_000_000 else { return }
+        lastBufferPublication = now
+        let milliseconds = Int((Double(bufferedFrames) / Self.sampleRate) * 1_000)
+        DispatchQueue.main.async { [onBufferChanged] in onBufferChanged(milliseconds) }
+    }
+}
+
+private final class PCMByteRingBuffer {
+    struct RenderResult {
+        let isSilent: Bool
+        let didUnderrun: Bool
+    }
+
+    private let lock = NSLock()
+    private let bytesPerFrame: Int
+    private let startBytes: Int
+    private let highWaterBytes: Int
+    private var storage: [UInt8]
+    private var readIndex = 0
+    private var writeIndex = 0
+    private var byteCount = 0
+    private var isPrimed = false
+
+    init(capacityFrames: Int, startFrames: Int, highWaterFrames: Int, bytesPerFrame: Int) {
+        self.bytesPerFrame = bytesPerFrame
+        startBytes = startFrames * bytesPerFrame
+        highWaterBytes = highWaterFrames * bytesPerFrame
+        storage = Array(repeating: 0, count: capacityFrames * bytesPerFrame)
+    }
+
+    @discardableResult
+    func write(_ data: Data) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let alignedByteCount = data.count - (data.count % bytesPerFrame)
+        guard alignedByteCount > 0 else { return byteCount / bytesPerFrame }
+
+        if byteCount + alignedByteCount > highWaterBytes {
+            discardOldest(min(alignedByteCount, byteCount))
+        }
+        if byteCount + alignedByteCount > storage.count {
+            discardOldest(byteCount + alignedByteCount - storage.count)
+        }
+
+        data.withUnsafeBytes { source in
+            guard let sourceBase = source.baseAddress else { return }
+            let sourceOffset = max(0, alignedByteCount - storage.count)
+            let bytesToWrite = min(alignedByteCount, storage.count)
+            storage.withUnsafeMutableBytes { destination in
+                guard let destinationBase = destination.baseAddress else { return }
+                let firstCopy = min(bytesToWrite, storage.count - writeIndex)
+                memcpy(destinationBase.advanced(by: writeIndex), sourceBase.advanced(by: sourceOffset), firstCopy)
+                let secondCopy = bytesToWrite - firstCopy
+                if secondCopy > 0 {
+                    memcpy(destinationBase, sourceBase.advanced(by: sourceOffset + firstCopy), secondCopy)
+                }
+                writeIndex = (writeIndex + bytesToWrite) % storage.count
+                byteCount = min(storage.count, byteCount + bytesToWrite)
             }
         }
+        return byteCount / bytesPerFrame
     }
 
-    private func resetOnQueue() {
-        player.stop()
-        pending.removeAll(keepingCapacity: true)
-        queuedFrames = 0
-        isPlaying = false
-        publishBufferDepth()
+    @discardableResult
+    func writeSilence(frames: Int) -> Int {
+        write(Data(count: max(0, frames) * bytesPerFrame))
     }
 
-    private func publishBufferDepth() {
-        let milliseconds = Int((Double(queuedFrames) / sampleRate) * 1_000)
-        DispatchQueue.main.async { [onBufferChanged] in onBufferChanged(milliseconds) }
+    func render(into audioBufferList: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) -> RenderResult {
+        let outputBytes = frameCount * bytesPerFrame
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        for buffer in buffers {
+            if let destination = buffer.mData {
+                memset(destination, 0, Int(buffer.mDataByteSize))
+            }
+        }
+        guard let destination = buffers.first?.mData else {
+            return RenderResult(isSilent: true, didUnderrun: false)
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        if !isPrimed {
+            guard byteCount >= startBytes else {
+                return RenderResult(isSilent: true, didUnderrun: false)
+            }
+            isPrimed = true
+        }
+
+        guard byteCount >= outputBytes else {
+            isPrimed = false
+            return RenderResult(isSilent: true, didUnderrun: true)
+        }
+
+        storage.withUnsafeBytes { source in
+            guard let sourceBase = source.baseAddress else { return }
+            let firstCopy = min(outputBytes, storage.count - readIndex)
+            memcpy(destination, sourceBase.advanced(by: readIndex), firstCopy)
+            let secondCopy = outputBytes - firstCopy
+            if secondCopy > 0 {
+                memcpy(destination.advanced(by: firstCopy), sourceBase, secondCopy)
+            }
+        }
+        readIndex = (readIndex + outputBytes) % storage.count
+        byteCount -= outputBytes
+        return RenderResult(isSilent: false, didUnderrun: false)
+    }
+
+    func reset() {
+        lock.lock()
+        readIndex = 0
+        writeIndex = 0
+        byteCount = 0
+        isPrimed = false
+        lock.unlock()
+    }
+
+    private func discardOldest(_ requestedBytes: Int) {
+        let alignedBytes = min(byteCount, requestedBytes - (requestedBytes % bytesPerFrame))
+        guard alignedBytes > 0 else { return }
+        readIndex = (readIndex + alignedBytes) % storage.count
+        byteCount -= alignedBytes
     }
 }
