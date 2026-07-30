@@ -6,19 +6,30 @@ final class ReceiverController: ObservableObject {
     @Published private(set) var isStreaming = false
     @Published private(set) var framesDecoded = 0
     @Published private(set) var framesDropped = 0
+    @Published private(set) var isAudioActive = false
+    @Published private(set) var audioChunksDropped = 0
+    @Published private(set) var audioBufferMilliseconds = 0
 
     let frameStore = FrameStore()
 
     private let networkQueue = DispatchQueue(label: "com.apctv.questcast.receiver.network", qos: .userInteractive)
     private let decoder: VideoDecoder
+    private lazy var audioPlayer = QuestAudioPlayer { [weak self] milliseconds in
+        self?.audioBufferMilliseconds = milliseconds
+    }
     private var listener: NWListener?
     private var connections: [NWEndpoint: NWConnection] = [:]
     private var streamWatchdog: DispatchSourceTimer?
     private var lastVideoFrameTime = DispatchTime.now()
+    private var lastAudioChunkTime = DispatchTime.now()
     private var streamingOnNetworkQueue = false
     private lazy var assembler = PacketAssembler(
         onAccessUnit: { [weak self] unit in self?.handle(unit) },
         onDrop: { [weak self] count in self?.publishDrops(count) }
+    )
+    private lazy var audioAssembler = AudioPacketAssembler(
+        onChunk: { [weak self] chunk in self?.handleAudio(chunk) },
+        onDrop: { [weak self] count in self?.publishAudioDrops(count) }
     )
 
     init() {
@@ -67,13 +78,25 @@ final class ReceiverController: ObservableObject {
     private func receiveNext(on connection: NWConnection) {
         connection.receiveMessage { [weak self, weak connection] content, _, _, error in
             guard let self, let connection else { return }
-            if let content { self.assembler.ingest(content) }
+            if let content {
+                if content.prefix(4) == Data([0x51, 0x43, 0x54, 0x41]) {
+                    self.audioAssembler.ingest(content)
+                } else {
+                    self.assembler.ingest(content)
+                }
+            }
             if error == nil {
                 self.receiveNext(on: connection)
             } else {
                 self.connections.removeValue(forKey: connection.endpoint)
             }
         }
+    }
+
+    private func handleAudio(_ chunk: AudioChunk) {
+        lastAudioChunkTime = .now()
+        audioPlayer.enqueue(chunk)
+        DispatchQueue.main.async { [weak self] in self?.isAudioActive = true }
     }
 
     private func handle(_ unit: AccessUnit) {
@@ -98,12 +121,23 @@ final class ReceiverController: ObservableObject {
         timer.schedule(deadline: .now() + 1, repeating: .milliseconds(500), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self, self.streamingOnNetworkQueue else { return }
+            let audioElapsed = DispatchTime.now().uptimeNanoseconds - self.lastAudioChunkTime.uptimeNanoseconds
+            if audioElapsed > 1_000_000_000 {
+                self.audioPlayer.stop()
+                DispatchQueue.main.async { [weak self] in
+                    self?.isAudioActive = false
+                    self?.audioBufferMilliseconds = 0
+                }
+            }
             let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - self.lastVideoFrameTime.uptimeNanoseconds
             guard elapsedNanoseconds > 2_500_000_000 else { return }
 
             self.streamingOnNetworkQueue = false
+            self.audioPlayer.stop()
             DispatchQueue.main.async { [weak self] in
                 self?.isStreaming = false
+                self?.isAudioActive = false
+                self?.audioBufferMilliseconds = 0
                 self?.status = "Ready — select QuestCast TV in the headset"
             }
         }
@@ -117,5 +151,9 @@ final class ReceiverController: ObservableObject {
 
     private func publishDrops(_ count: Int) {
         DispatchQueue.main.async { [weak self] in self?.framesDropped += count }
+    }
+
+    private func publishAudioDrops(_ count: Int) {
+        DispatchQueue.main.async { [weak self] in self?.audioChunksDropped += count }
     }
 }

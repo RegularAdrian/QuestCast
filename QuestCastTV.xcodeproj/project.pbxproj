@@ -14,6 +14,8 @@
 		A10000000000000000000005 /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* VideoDecoder.swift */; };
 		A10000000000000000000006 /* PixelBufferSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* PixelBufferSurface.swift */; };
 		A10000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* Assets.xcassets */; };
+		A10000000000000000000008 /* AudioPacketAssembler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* AudioPacketAssembler.swift */; };
+		A10000000000000000000009 /* QuestAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* QuestAudioPlayer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +28,8 @@
 		A20000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000008 /* QuestCastTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QuestCastTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000010 /* AudioPacketAssembler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPacketAssembler.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* QuestAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestAudioPlayer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,7 +59,9 @@
 				A20000000000000000000003 /* ReceiverController.swift */,
 				A20000000000000000000004 /* PacketAssembler.swift */,
 				A20000000000000000000005 /* VideoDecoder.swift */,
-				A20000000000000000000006 /* PixelBufferSurface.swift */,
+					A20000000000000000000006 /* PixelBufferSurface.swift */,
+					A20000000000000000000010 /* AudioPacketAssembler.swift */,
+					A20000000000000000000011 /* QuestAudioPlayer.swift */,
 				A20000000000000000000007 /* Info.plist */,
 				A20000000000000000000009 /* Assets.xcassets */,
 			);
@@ -144,7 +150,9 @@
 				A10000000000000000000003 /* ReceiverController.swift in Sources */,
 				A10000000000000000000004 /* PacketAssembler.swift in Sources */,
 				A10000000000000000000005 /* VideoDecoder.swift in Sources */,
-				A10000000000000000000006 /* PixelBufferSurface.swift in Sources */,
+					A10000000000000000000006 /* PixelBufferSurface.swift in Sources */,
+					A10000000000000000000008 /* AudioPacketAssembler.swift in Sources */,
+					A10000000000000000000009 /* QuestAudioPlayer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -183,7 +191,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QuestCastTV/Info.plist;
-				MARKETING_VERSION = 0.1;
+					MARKETING_VERSION = 0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.apctv.questcast.tv;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
@@ -202,7 +210,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QuestCastTV/Info.plist;
-				MARKETING_VERSION = 0.1;
+					MARKETING_VERSION = 0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.apctv.questcast.tv;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";

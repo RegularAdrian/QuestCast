@@ -1,10 +1,12 @@
 package com.apctv.questcast
 
+import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,6 +24,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var discoveryProgress: ProgressBar
     private lateinit var receiverList: LinearLayout
     private lateinit var stopButton: Button
+    private lateinit var includeAudioSwitch: Switch
     private var selectedReceiver: NsdServiceInfo? = null
 
     private val statusReceiver = object : BroadcastReceiver() {
@@ -63,9 +67,19 @@ class MainActivity : ComponentActivity() {
             putExtra(ProjectionService.EXTRA_RESULT_DATA, data)
             putExtra(ProjectionService.EXTRA_HOST, receiver.host.hostAddress)
             putExtra(ProjectionService.EXTRA_PORT, receiver.port)
+            putExtra(ProjectionService.EXTRA_INCLUDE_AUDIO, includeAudioSwitch.isChecked)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
         setStatus("Starting cast…")
+    }
+
+    private val audioPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted && ::includeAudioSwitch.isInitialized) {
+            includeAudioSwitch.isChecked = false
+            setStatus("Audio permission was not granted")
+        }
     }
 
     private val discoveryListener = object : NsdManager.DiscoveryListener {
@@ -187,6 +201,47 @@ class MainActivity : ComponentActivity() {
         })
         content.addView(statusPanel, LinearLayout.LayoutParams(dp(660), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(28)
+        })
+
+        val audioPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(22), dp(14), dp(16), dp(14))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.status_panel)
+        }
+        val audioCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        audioCopy.addView(TextView(this).apply {
+            text = "Include headset audio"
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.WHITE)
+        }, matchWrap())
+        audioCopy.addView(TextView(this).apply {
+            text = "Experimental • playback only • microphone is never captured"
+            textSize = 13f
+            setTextColor(Color.rgb(161, 172, 196))
+            setPadding(0, dp(3), 0, 0)
+        }, matchWrap())
+        audioPanel.addView(audioCopy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        includeAudioSwitch = Switch(this).apply {
+            isChecked = false
+            isFocusable = true
+            contentDescription = "Include headset playback audio"
+            setOnCheckedChangeListener { _, checked ->
+                if (checked && ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.RECORD_AUDIO
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+        audioPanel.addView(includeAudioSwitch, LinearLayout.LayoutParams(dp(74), dp(54)).apply {
+            marginStart = dp(18)
+        })
+        content.addView(audioPanel, LinearLayout.LayoutParams(dp(660), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(14)
         })
 
         receiverList = LinearLayout(this).apply {
@@ -316,6 +371,20 @@ class MainActivity : ComponentActivity() {
                 STATUS_LIVE,
                 false,
                 true
+            )
+            message == "Streaming video and audio to Apple TV" -> StatusPresentation(
+                "Casting with headset audio",
+                "Your headset view and playback audio are live.",
+                STATUS_LIVE,
+                false,
+                true
+            )
+            message.startsWith("Audio unavailable") || message == "Audio permission was not granted" -> StatusPresentation(
+                "Headset audio unavailable",
+                if (message.startsWith("Audio unavailable")) "Video will continue without audio." else "Enable audio again to retry permission.",
+                STATUS_WAITING,
+                false,
+                message.startsWith("Audio unavailable")
             )
             message == "Cast stopped" -> StatusPresentation(
                 "Casting stopped",

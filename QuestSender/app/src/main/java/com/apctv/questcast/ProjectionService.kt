@@ -7,6 +7,10 @@ import android.app.Service
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.AudioRecord
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -31,6 +35,10 @@ class ProjectionService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var socket: DatagramSocket? = null
     private var encoderThread: Thread? = null
+    private var audioRecord: AudioRecord? = null
+    private var audioThread: Thread? = null
+    @Volatile private var audioCaptureActive = false
+    @Volatile private var audioCaptureFailed = false
     private val running = AtomicBoolean(false)
     private val starting = AtomicBoolean(false)
     private val startupExecutor = Executors.newSingleThreadExecutor { task ->
@@ -53,6 +61,7 @@ class ProjectionService : Service() {
         } ?: return stopForError()
         val host = intent.getStringExtra(EXTRA_HOST) ?: return stopForError()
         val port = intent.getIntExtra(EXTRA_PORT, DEFAULT_PORT)
+        val includeAudio = intent.getBooleanExtra(EXTRA_INCLUDE_AUDIO, false)
         publishStatus("Starting encoder for $host:$port")
 
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -63,7 +72,7 @@ class ProjectionService : Service() {
         }
 
         startupExecutor.execute {
-            runCatching { startEncoder(InetAddress.getByName(host), port) }
+            runCatching { startEncoder(InetAddress.getByName(host), port, includeAudio) }
                 .onSuccess { starting.set(false) }
                 .onFailure { error ->
                     starting.set(false)
@@ -80,6 +89,9 @@ class ProjectionService : Service() {
         starting.set(false)
         startupExecutor.shutdownNow()
         encoderThread?.interrupt()
+        audioThread?.interrupt()
+        audioRecord?.runCatching { stop() }
+        audioRecord?.release()
         virtualDisplay?.release()
         encoder?.runCatching { stop() }
         encoder?.release()
@@ -88,7 +100,7 @@ class ProjectionService : Service() {
         super.onDestroy()
     }
 
-    private fun startEncoder(address: InetAddress, port: Int) {
+    private fun startEncoder(address: InetAddress, port: Int, includeAudio: Boolean) {
         socket = DatagramSocket().apply { connect(address, port) }
 
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT).apply {
@@ -115,6 +127,14 @@ class ProjectionService : Service() {
         }
 
         running.set(true)
+        if (includeAudio) {
+            runCatching { startAudioCapture() }
+                .onFailure { error ->
+                    audioCaptureFailed = true
+                    Log.w(TAG, "Playback audio is unavailable", error)
+                    publishStatus("Audio unavailable: ${error.javaClass.simpleName}")
+                }
+        }
         publishStatus("Encoder started; waiting for video frames")
         encoderThread = Thread({
             runCatching { drainEncoder() }
@@ -124,6 +144,65 @@ class ProjectionService : Service() {
                     stopSelf()
                 }
         }, "questcast-encoder").apply { start() }
+    }
+
+    private fun startAudioCapture() {
+        val mediaProjection = projection ?: error("MediaProjection is unavailable")
+        val captureConfiguration = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+            .addMatchingUsage(AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+            .build()
+        val audioFormat = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .setSampleRate(AUDIO_SAMPLE_RATE)
+            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+            .build()
+        val minimumBuffer = AudioRecord.getMinBufferSize(
+            AUDIO_SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        check(minimumBuffer > 0) { "No compatible playback capture format" }
+
+        audioRecord = AudioRecord.Builder()
+            .setAudioFormat(audioFormat)
+            .setBufferSizeInBytes(maxOf(minimumBuffer, AUDIO_CHUNK_BYTES * 4))
+            .setAudioPlaybackCaptureConfig(captureConfiguration)
+            .build()
+            .also { record ->
+                check(record.state == AudioRecord.STATE_INITIALIZED) { "Playback capture did not initialise" }
+                record.startRecording()
+            }
+
+        audioCaptureActive = true
+        audioThread = Thread({ captureAudio() }, "questcast-audio").apply { start() }
+    }
+
+    private fun captureAudio() {
+        val record = audioRecord ?: return
+        val chunk = ByteArray(AUDIO_CHUNK_BYTES)
+        try {
+            while (running.get() && !Thread.currentThread().isInterrupted) {
+                val bytesRead = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
+                if (bytesRead > 0) {
+                    AudioUdpPacketizer.send(
+                        socket ?: return,
+                        chunk.copyOf(bytesRead),
+                        System.nanoTime() / 1_000L
+                    )
+                } else if (bytesRead < 0) {
+                    error("AudioRecord read failed ($bytesRead)")
+                }
+            }
+        } catch (error: Throwable) {
+            if (running.get()) {
+                audioCaptureActive = false
+                audioCaptureFailed = true
+                Log.w(TAG, "Playback audio stopped", error)
+                publishStatus("Audio unavailable: ${error.javaClass.simpleName}")
+            }
+        }
     }
 
     private fun drainEncoder() {
@@ -161,7 +240,11 @@ class ProjectionService : Service() {
         }
         if (combined.isNotEmpty()) {
             UdpPacketizer.send(socket ?: return, combined.toByteArray(), 0, isConfig = true, isKeyFrame = true)
-            publishStatus("Streaming video to Apple TV")
+            publishStatus(if (audioCaptureActive && !audioCaptureFailed) {
+                "Streaming video and audio to Apple TV"
+            } else {
+                "Streaming video to Apple TV"
+            })
         }
     }
 
@@ -206,6 +289,7 @@ class ProjectionService : Service() {
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         const val EXTRA_STATUS = "status"
+        const val EXTRA_INCLUDE_AUDIO = "includeAudio"
         const val ACTION_STATUS = "com.apctv.questcast.STATUS"
 
         private const val WIDTH = 1920
@@ -216,8 +300,43 @@ class ProjectionService : Service() {
         private const val DEFAULT_PORT = 49152
         private const val CHANNEL_ID = "questcast-capture"
         private const val NOTIFICATION_ID = 41
+        private const val AUDIO_SAMPLE_RATE = 48_000
+        private const val AUDIO_CHANNELS = 2
+        private const val AUDIO_BYTES_PER_SAMPLE = 2
+        private const val AUDIO_CHUNK_MILLISECONDS = 10
+        private const val AUDIO_CHUNK_BYTES = AUDIO_SAMPLE_RATE * AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE * AUDIO_CHUNK_MILLISECONDS / 1_000
         private const val TAG = "QuestCast"
         private val START_CODE = byteArrayOf(0, 0, 0, 1)
+    }
+}
+
+private object AudioUdpPacketizer {
+    private const val HEADER_SIZE = 24
+    private const val MAX_DATAGRAM_SIZE = 1200
+    private const val MAX_PAYLOAD = MAX_DATAGRAM_SIZE - HEADER_SIZE
+    private var chunkId = 0
+
+    @Synchronized
+    fun send(socket: DatagramSocket, pcm: ByteArray, presentationTimeUs: Long) {
+        if (pcm.isEmpty()) return
+        val id = chunkId++
+        val fragmentCount = (pcm.size + MAX_PAYLOAD - 1) / MAX_PAYLOAD
+        for (fragmentIndex in 0 until fragmentCount) {
+            val offset = fragmentIndex * MAX_PAYLOAD
+            val payloadSize = minOf(MAX_PAYLOAD, pcm.size - offset)
+            val bytes = ByteBuffer.allocate(HEADER_SIZE + payloadSize).order(ByteOrder.BIG_ENDIAN).apply {
+                put(byteArrayOf('Q'.code.toByte(), 'C'.code.toByte(), 'T'.code.toByte(), 'A'.code.toByte()))
+                put(1.toByte())
+                put(0.toByte())
+                putShort(HEADER_SIZE.toShort())
+                putInt(id)
+                putShort(fragmentIndex.toShort())
+                putShort(fragmentCount.toShort())
+                putLong(presentationTimeUs)
+                put(pcm, offset, payloadSize)
+            }.array()
+            socket.send(DatagramPacket(bytes, bytes.size))
+        }
     }
 }
 

@@ -134,6 +134,11 @@ struct ContentView: View {
                     diagnosticRow("Codec", "H.264 / hardware decode")
                     diagnosticRow("Target", "1920 × 1080  •  60 fps")
                     diagnosticRow("Transport", "UDP / local network")
+                    diagnosticRow("Audio", receiver.isAudioActive ? "PCM 48 kHz stereo" : "Off / unavailable")
+                    if receiver.isAudioActive {
+                        diagnosticRow("Audio buffer", "\(receiver.audioBufferMilliseconds) ms")
+                        diagnosticRow("Audio chunks lost", receiver.audioChunksDropped.formatted())
+                    }
                     diagnosticRow("Frames received", receiver.framesDecoded.formatted())
                     diagnosticRow("Incomplete frames", receiver.framesDropped.formatted())
                 }

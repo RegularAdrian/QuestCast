@@ -2,7 +2,9 @@
 
 ![QuestCast cover](StoreAssets/QuestCast-Cover-Landscape-2560x1440.png)
 
-QuestCast is an experimental, low-latency, video-only casting system for casting a Meta Quest 3 headset view on an Apple TV over a local network. It is built as two small native applications with no PC, cloud service, account, or relay in the middle.
+QuestCast is an experimental, low-latency casting system for showing a Meta Quest 3 headset view on an Apple TV over a local network. It is built as two small native applications with no PC, cloud service, account, or relay in the middle.
+
+**Project site:** [regularadrian.github.io/QuestCast](https://regularadrian.github.io/QuestCast/)
 
 > [!IMPORTANT]
 > QuestCast is an independent community project. It is not affiliated with, endorsed by, or sponsored by Meta or Apple. Meta Quest, Apple TV, tvOS, and their respective marks belong to their owners.
@@ -28,8 +30,7 @@ This design prioritises responsiveness over perfect delivery: incomplete or late
 - Video stays on the local network, no cloud or internet services involved
 - Optional diagnostics overlay on Apple TV using the Play/Pause button
 - Apple TV screensaver remains available while the receiver is idle
-
-Audio is not currently transmitted.
+- Optional experimental 48 kHz stereo playback audio, off by default
 
 ## Downloads
 
@@ -92,7 +93,8 @@ The resulting APK is written under `QuestSender/app/build/outputs/apk/debug/`.
 2. Start QuestCast on the headset.
 3. Select **Cast to QuestCast TV**.
 4. Approve the system capture prompt.
-5. Press Play/Pause on the Siri Remote during casting to toggle technical diagnostics.
+5. Before starting, optionally enable **Include headset audio**. This requests playback-audio permission; the microphone is not captured.
+6. Press Play/Pause on the Siri Remote during casting to toggle technical diagnostics.
 
 ![QuestCast sender interface](StoreAssets/QuestCast-Screenshot-01-2560x1440.png)
 
@@ -105,12 +107,15 @@ The resulting APK is written under `QuestSender/app/build/outputs/apk/debug/`.
 - Datagram size: no more than 1200 bytes
 - Incomplete-frame expiry: 80 ms
 - Receiver playback/jitter buffer: none
+- Optional audio: PCM 16-bit, 48 kHz stereo in 10 ms chunks
+- Audio startup buffer: approximately 30 ms, capped at approximately 100 ms
 
 H.265 may reduce bandwidth, but H.264 is the current default because its hardware path is widely supported and predictable. A future H.265 mode should be measured end-to-end rather than assumed to be faster.
 
 ## Security and privacy
 
 - Capture starts only after the user accepts the Horizon OS `MediaProjection` prompt.
+- Playback audio is captured only when the user enables it and grants permission. The microphone is not included.
 - QuestCast does not upload, store, analyse, or relay the video through an external service.
 - The current UDP protocol is intentionally minimal and does **not** provide authentication or encryption.
 - Use it only on a trusted local network. Do not expose UDP port `49152` to the internet.
@@ -122,7 +127,7 @@ Network ping does not measure capture-to-display latency. For a useful test, sho
 
 ## Known limitations
 
-- Video only; no audio path yet
+- Playback audio capture depends on Horizon OS and the foreground app allowing it; protected or opted-out apps may be silent
 - No authentication, encryption, retransmission, or forward-error correction
 - Packet loss can discard a complete encoded frame
 - Tested primarily with Meta Quest 3 and Apple TV on the same local network

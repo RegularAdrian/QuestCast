@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuestCast — Meta Quest to Apple TV, without a PC</title>
+  <meta name="description" content="An open-source, low-latency local casting app for Meta Quest and Apple TV. No PC, cloud account, or relay required.">
+  <meta name="theme-color" content="#030510">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="QuestCast — Your headset. Your Apple TV.">
+  <meta property="og:description" content="Low-latency local casting from Meta Quest to Apple TV, without a PC in between.">
+  <meta property="og:url" content="https://regularadrian.github.io/QuestCast/">
+  <meta property="og:image" content="https://regularadrian.github.io/QuestCast/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="QuestCast home">
+      <img src="assets/icon.png" alt="" width="42" height="42">
+      <span>QuestCast</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#features">Features</a>
+      <a href="#setup">Set up</a>
+      <a href="https://github.com/RegularAdrian/QuestCast">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span> Open source · local network only</p>
+        <h1>Your headset.<br>Your Apple TV.<br><em>No PC in between.</em></h1>
+        <p class="lede">QuestCast sends your Meta Quest view directly to Apple TV with a latency-first native video path—and optional experimental headset audio.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/RegularAdrian/QuestCast/releases/latest">Get the Quest APK <span>↓</span></a>
+          <a class="button secondary" href="https://github.com/RegularAdrian/QuestCast#build-the-apple-tv-receiver">Build for Apple TV <span>↗</span></a>
+        </div>
+        <p class="compatibility">Designed for Meta Quest 3 · Apple TV · trusted home networks</p>
+      </div>
+
+      <div class="hero-visual" aria-label="QuestCast headset and Apple TV app preview">
+        <div class="orb orb-one"></div>
+        <div class="orb orb-two"></div>
+        <div class="signal signal-one"></div>
+        <div class="signal signal-two"></div>
+        <div class="tv-frame">
+          <img src="assets/app-screenshot.jpg" alt="QuestCast interface waiting for a headset connection">
+          <div class="tv-stand"></div>
+        </div>
+        <img class="headset" src="assets/headset.png" alt="Meta Quest-style VR headset">
+        <div class="live-pill"><i></i> Direct local stream</div>
+      </div>
+    </section>
+
+    <section class="proof" aria-label="QuestCast highlights">
+      <div><strong>1080p</strong><span>60 fps target</span></div>
+      <div><strong>UDP</strong><span>latency-first transport</span></div>
+      <div><strong>0</strong><span>cloud relays</span></div>
+      <div><strong>48 kHz</strong><span>optional PCM audio</span></div>
+    </section>
+
+    <section class="story" id="features">
+      <div class="section-heading">
+        <p class="eyebrow"><span></span> Built for immediacy</p>
+        <h2>A small, direct path from headset to television.</h2>
+        <p>QuestCast favours the newest picture over a perfect delayed stream. Late or incomplete frames are discarded, keeping the experience responsive.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card featured">
+          <div class="feature-mark">⌁</div>
+          <p class="card-label">The direct route</p>
+          <h3>Hardware capture to hardware decode.</h3>
+          <div class="route" aria-label="Quest to Wi-Fi access point to Apple TV">
+            <span>QUEST</span><b></b><span>LOCAL NETWORK</span><b></b><span>APPLE TV</span>
+          </div>
+          <p>Android MediaProjection and H.264 hardware encoding feed Apple’s VideoToolbox decoder, with no computer or internet service in the middle.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-mark">◉</div>
+          <p class="card-label">Automatic discovery</p>
+          <h3>Open both apps. Pick your TV.</h3>
+          <p>Bonjour finds QuestCast TV on the local network, so there are no IP addresses or pairing codes to type.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-mark">◒</div>
+          <p class="card-label">Audio on your terms</p>
+          <h3>Playback audio is opt-in.</h3>
+          <p>Enable experimental 48 kHz stereo audio manually on the headset. It stays off by default and never captures the microphone.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-mark">⌘</div>
+          <p class="card-label">Useful when needed</p>
+          <h3>Diagnostics without the clutter.</h3>
+          <p>Press Play/Pause on the Siri Remote to reveal codec, frame, loss, and audio-buffer information over the live picture.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-mark">◇</div>
+          <p class="card-label">Private by design</p>
+          <h3>Your stream stays at home.</h3>
+          <p>No account, analytics, cloud service, recording, or relay. Use QuestCast only on a trusted local network.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="setup" id="setup">
+      <div class="setup-copy">
+        <p class="eyebrow"><span></span> Three simple steps</p>
+        <h2>Ready when your headset is.</h2>
+        <p>The Quest app can be installed from a GitHub release. The Apple TV receiver currently builds through Xcode using your own Apple Developer team.</p>
+        <a class="text-link" href="https://github.com/RegularAdrian/QuestCast#using-questcast">Read the complete setup guide <span>→</span></a>
+      </div>
+      <ol class="steps">
+        <li><span>01</span><div><strong>Launch QuestCast TV</strong><p>Leave the elegant waiting screen open on Apple TV.</p></div></li>
+        <li><span>02</span><div><strong>Choose your television</strong><p>Open QuestCast in the headset and select the discovered receiver.</p></div></li>
+        <li><span>03</span><div><strong>Approve and cast</strong><p>Accept Horizon OS screen capture. Enable audio first only if you want it.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="cta">
+      <img src="assets/icon.png" alt="" width="96" height="96">
+      <p class="eyebrow">Community built</p>
+      <h2>Try QuestCast. Measure it.<br>Help make it better.</h2>
+      <p>The source is available under the MIT Licence. Reproducible latency tests, fixes, and ideas are welcome.</p>
+      <div class="actions centred">
+        <a class="button primary" href="https://github.com/RegularAdrian/QuestCast">View on GitHub <span>↗</span></a>
+        <a class="button secondary" href="https://github.com/RegularAdrian/QuestCast/issues">Share feedback</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand small"><img src="assets/icon.png" alt="" width="32" height="32"><span>QuestCast</span></div>
+    <p>Independent community project. Not affiliated with Meta or Apple.</p>
+    <div><a href="https://github.com/RegularAdrian/QuestCast/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/RegularAdrian/QuestCast/blob/main/LICENSE">MIT Licence</a></div>
+  </footer>
+</body>
+</html>
