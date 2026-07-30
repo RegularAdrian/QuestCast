@@ -4,6 +4,7 @@ import UIKit
 struct ContentView: View {
     @ObservedObject var receiver: ReceiverController
     @State private var diagnosticsVisible = false
+    @FocusState private var remoteCommandFocused: Bool
 
     var body: some View {
         ZStack {
@@ -25,6 +26,9 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.28), value: receiver.isStreaming)
         .animation(.easeInOut(duration: 0.2), value: diagnosticsVisible)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($remoteCommandFocused)
         .onPlayPauseCommand {
             guard receiver.isStreaming else { return }
             diagnosticsVisible.toggle()
@@ -33,11 +37,13 @@ struct ContentView: View {
             if !isStreaming {
                 diagnosticsVisible = false
             }
+            requestRemoteCommandFocus()
             UIApplication.shared.isIdleTimerDisabled = isStreaming
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = receiver.isStreaming
             receiver.start()
+            requestRemoteCommandFocus()
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -171,5 +177,11 @@ struct ContentView: View {
 
     private var statusColour: Color {
         receiver.status.hasPrefix("Ready") ? .green : .yellow
+    }
+
+    private func requestRemoteCommandFocus() {
+        DispatchQueue.main.async {
+            remoteCommandFocused = true
+        }
     }
 }
