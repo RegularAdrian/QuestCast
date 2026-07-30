@@ -134,22 +134,25 @@ private final class PCMByteRingBuffer {
             discardOldest(byteCount + alignedByteCount - storage.count)
         }
 
+        let capacity = storage.count
+        let initialWriteIndex = writeIndex
+        let sourceOffset = max(0, alignedByteCount - capacity)
+        let bytesToWrite = min(alignedByteCount, capacity)
+
         data.withUnsafeBytes { source in
             guard let sourceBase = source.baseAddress else { return }
-            let sourceOffset = max(0, alignedByteCount - storage.count)
-            let bytesToWrite = min(alignedByteCount, storage.count)
             storage.withUnsafeMutableBytes { destination in
                 guard let destinationBase = destination.baseAddress else { return }
-                let firstCopy = min(bytesToWrite, storage.count - writeIndex)
-                memcpy(destinationBase.advanced(by: writeIndex), sourceBase.advanced(by: sourceOffset), firstCopy)
+                let firstCopy = min(bytesToWrite, capacity - initialWriteIndex)
+                memcpy(destinationBase.advanced(by: initialWriteIndex), sourceBase.advanced(by: sourceOffset), firstCopy)
                 let secondCopy = bytesToWrite - firstCopy
                 if secondCopy > 0 {
                     memcpy(destinationBase, sourceBase.advanced(by: sourceOffset + firstCopy), secondCopy)
                 }
-                writeIndex = (writeIndex + bytesToWrite) % storage.count
-                byteCount = min(storage.count, byteCount + bytesToWrite)
             }
         }
+        writeIndex = (initialWriteIndex + bytesToWrite) % capacity
+        byteCount = min(capacity, byteCount + bytesToWrite)
         return byteCount / bytesPerFrame
     }
 
@@ -185,16 +188,18 @@ private final class PCMByteRingBuffer {
             return RenderResult(isSilent: true, didUnderrun: true)
         }
 
+        let capacity = storage.count
+        let initialReadIndex = readIndex
         storage.withUnsafeBytes { source in
             guard let sourceBase = source.baseAddress else { return }
-            let firstCopy = min(outputBytes, storage.count - readIndex)
-            memcpy(destination, sourceBase.advanced(by: readIndex), firstCopy)
+            let firstCopy = min(outputBytes, capacity - initialReadIndex)
+            memcpy(destination, sourceBase.advanced(by: initialReadIndex), firstCopy)
             let secondCopy = outputBytes - firstCopy
             if secondCopy > 0 {
                 memcpy(destination.advanced(by: firstCopy), sourceBase, secondCopy)
             }
         }
-        readIndex = (readIndex + outputBytes) % storage.count
+        readIndex = (initialReadIndex + outputBytes) % capacity
         byteCount -= outputBytes
         return RenderResult(isSilent: false, didUnderrun: false)
     }
